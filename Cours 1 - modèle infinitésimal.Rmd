@@ -1,0 +1,502 @@
+---
+title: "Un caractère quantitatif"
+author: "J. David"
+date: '`r as.character(format(Sys.Date(), format="%d/%m/%Y"))`'
+output:
+  rmdformats::readthedown:
+    highlight: kate
+  html_document:
+    toc: yes
+  pdf_document:
+    number_sections: yes
+    toc: yes
+    toc_depth: 3
+  word_document: default
+---
+  
+#Contexte
+Pour faire sortir les codes R qui permettent de générer ce document, il faut faire passer la variable statut à TRUE
+
+```{r}
+Statut<-FALSE
+
+```
+
+
+# Notions de base
+Nous avons vu que pour expliquer les expériences de sélection artificielles, notamment celle qui vise à modifier la teneur en huile et en proteine sur le Maïs, nous pouvons faire appel à un modèle de l'architecture génétique des caractères basés sur un grand nombre de locus (voire une infinité), polymorphes dans la population soumise à la sélection et pourvu à priori d'un grand nombre d'allèles à chaque locus (voire une infinité). Les effets de chaque allèles peuvent s'additionner pour former le génotypes, les interactions entre les allèles (par paires, par triplet etc...) intra ou inter locus viennent eux aussi s'additionner aux effets principaux des allèles pour former la valeur génétique des individus.
+A cette valeur génétique, viennent s'ajouter les effets de l'environnement, soit de manière indépendante des gènes soit en interaction avec eux.
+
+Par exemple, imaginons un caractère quantitatif, P. Il est déterminé par l'action de nombreux gènes, qui pour simplifier ont deux allèles chacun. 
+
+
+
+Nous pouvons simuler la distribution du fréquences allèliques à tous les locus. Faisons l'hypothèse que la population soit à l'équilibre mutation et dérive, les gènes sont tellement nombreux à déterminer le caractère que nous pouvons les considérer comme presque neutres. 
+
+La distribution des fréquences alléliques peut être alors simulée par un attendu produit par Ewens en 1972 dans le cas simple d'allèles segregeant dans une population Wright Fisher (pas de changement démographique, pas de migration) à l'équilibre mutation / dérive. 
+
+Dans un échantillon de n allèles, dans une population de paramètre $\theta=4Ne\mu$ ($N_{e}=300$, $\mu=10^{-4}$) la distribution du nombre d'alleles dérivés A par rapport à l'état ancestral a est donné par la relation $x_i = \frac{\theta}{i}$.  
+
+Dans un échantillon de taille 30 individus, sur une espèce diploïde panmictique, on peut avoir des locus polymorphes avec des cas allant de 1A-59a jusqu'à 59A-1a. Appelons xi la proportion de cas avec i allèles dérivés.
+
+Regardons la distribution des fréquences alléliques :
+
+```{r, echo=Statut}
+# fonction qui donne la valeur de theta = 4Neµ
+xi <- function(n,theta ){
+i<-c(1:(2*n-1))
+pi<-theta/i
+return(pi)
+}
+```
+
+```{r}
+# nombre d individus
+n<-30
+theta<-0.1
+
+```
+
+```{r, echo=Statut}
+
+plot(c(1:(2*n-1))/60,xi(n,theta), main="Distribution de la fréquence des allèles dérivés", 
+xlab="Frequence de l allèle dérivé A", ylab="Proportion de locus",
+ylim=c(0,1))
+```
+
+La plupart des polymorphismes dérivés sont en faibles fréquences et il y a peu d'allèles en fréquences élevées.
+
+##Exercices
+Faites varier la valeur de $\theta$  pour voir l'influence de la taille efficace et du taux de mutation sur les spectres de fréquences alléliques dans votre population. Qu'en déduisez-vous ? 
+
+Pour parfaire votre maîtrise de R, représentez les distributions pour différentes valeurs de theta sur le même graphe. Plusieurs façons de faire existent. 
+
+
+Nous allons utiliser le vecteur de densité des fréquences dérivées pour simuler notre population consituée de 100 individus.
+
+```{r}
+n<-50
+# proportions des frequences alleliques
+freq<-xi(n,0.10)
+
+```
+
+Nous décidons maintenant que les allèles A ont un effet +1 sur la valeur du génotype et les allèles a ont un effet -1. 
+
+## Tirages des fréquences des allèles dérivés aux différents locus
+Prenons un premier locus. Tirons au hasard la catégorie de fréquence à laquelle appartient ce locus. Nous faisons un tirage multinomial dans le vecteur des frequences possible (freq). La fonction suivante nous tirons une seule fois un seul locus dans notre vecteur freq. Nous cherchons ensuite à quelle classe de fréquence appartient ce locus.
+
+
+```{r, echo=Statut}
+tirage<-rmultinom(1, size = 1, prob = freq)
+classe <- which(tirage>0)
+print (paste("la classe de fréquence du locus est la classe ", classe))
+
+# calcul de la fréquence de A
+pA<-classe/2/n
+print (paste("la fréquence de l'allèle A pour ce locus est  ", pA))
+
+```
+Donc le locus echantillonné appartient à la classe affichée ci-dessus. Cette affection permet de calculer la fréquence de A pour ce locus.
+
+Décidons que la valeur génotype du caractère soit basée sur L locus. 
+Tirons les classes de fréquences de ces L locus et calculons les fréquences des allèles A dans chaque locus.
+
+```{r, echo=Statut}
+L<-100
+Locus<-NULL
+for(i in 1:L) {
+        tirage<-rmultinom(1, size = 1, prob = freq)
+        classe <- which(tirage>0)
+        Locus[i]<-classe/2/n  
+        } 
+hist(Locus, main="Distribution des fréquences des allèles A")
+```
+Nous avons donc à notre disposition un caractère déterminé par un grand nombre de locus dont les fréquences des allèles sont connus.
+
+## Construction des individus
+
+Plaçons nous en panmixie. A chaque locus, les génotypes possibles sont AA en fréquence $pA^2$, Aa en fréquence 2pApa et aa en fréquence $pa^2$.
+
+Pour fabriquer un individu, les génotypes sont tirés au hasard pour chaque locus.
+
+Créons un objet qui accueillera le génome du premier individu que nous allons créer.
+```{r, echo=Statut}
+genotype <-NULL
+
+for(i in 1:L) {
+        pA<-Locus[i]
+        pa<-1-pA
+        tirage<-rmultinom(1, size = 1, prob = c(pa*pa, 2*pA*pa, pA*pA))
+        genotype[i]<-(which(tirage>0)-2)  
+} 
+print("le genotypeà tout ses locus vaut")
+genotype
+
+hist(genotype, main="Distribution des valeurs génotypique à tout les locus")
+
+```
+
+Nous pouvons maintenant générer la population de la même manière mais de manière matricielle. Un individu aura son génotype sur un vecteur ligne avec L colonnes.
+
+Pour ne pas faire de double boucle, la fonction rmultinorm peut faire plus d'un seul individu par locus.
+Une astuce R pour obtenir le reste de la division entière (%%), le vecteur de fréquence AA, Aa et aa est inversé par rapport à la fonction précédent pour pouvoir avoir des valeurs +2 aux AA, 0 aux Aa et -2 aux aa.
+
+```{r}
+# nombre d'individus
+n_ind<-1000
+```
+
+```{r, echo=Statut}
+genotype <-matrix(nrow=n_ind, ,ncol=L)
+
+for(i in 1:L) {
+        pA<-Locus[i]
+        pa<-1-pA
+        tirage<-rmultinom(n_ind, size = 1, prob = c(2*pA*pa, pA*pA,  pa*pa))
+        genotype[,i]<-((which(tirage>0))%%3-1)*2
+} 
+
+```
+
+Notre population de génoytype est prête.
+
+La valeur génotypique est la somme des valeurs à chaque locus. Ici les effets s'additionnent, sans interaction entre allèles au sein de chaque locus et sans interactions entre locus.
+
+donc pour le premier individu, la valeur génotypique vaut 
+```{r}
+sum(genotype[1,])
+
+```
+
+Avec la fonction apply, on peut obtenir la valeur de tous les indidus. Elle applique la fonction passée en argument (ici sum) à tout l'objet en faisant un traitement par ligne (argument 1) ou par colonne (argument 2).
+
+```{r}
+ValeursG<-apply(genotype, 1, sum)
+hist(ValeursG, main= "Distribution des valeurs génétiques", breaks=c(min(ValeursG):max(ValeursG)))
+```
+
+
+La valeur moyenne de la population est 
+```{r}
+mean(ValeursG)
+```
+ La variance est 
+
+```{r}
+var(ValeursG)
+
+```
+
+
+Donc nous pouvons modéliser
+```{r}
+ValSim<-rnorm(1000, mean=mean(ValeursG), sd=var(ValeursG)^0.5)
+
+hist(ValSim,
+  main = "modélisation par une loi normale",
+  breaks=c((min(ValSim)-1):(max(ValSim)+1)))
+
+```
+
+Pour vous rendre compte de la sensibilité des tirages à la distribution, éxecutez ces instructions plusieurs fois. 
+
+Nous pouvons voir qu'un caractère quantitatif, déterminé par la somme des effets génétique d'un grand nombre de locus de fréquences quelconque, avec des petits effets  allèliques, voire infiniment petits peut être modélisée par une distribution normale, dont la variance est, en espérance, la somme des variances individuelles
+
+Quelles sont les variances individuelles ?
+On utilise la fonction apply sur l'objet genotype sur les colonnes .
+
+```{r}
+VarianceG<-apply(genotype, 2, var)
+hist(VarianceG)
+sum(VarianceG)
+```
+
+On peut comparer cette valeur à la vraie variance (var(ValeursG)) 
+
+Les deux valeurs ne sont pas exactement égales car dans la mesure où les tirages aléatoires ont pu créeer quelques covariances entre les individus.
+Les valeurs entre les valeurs génétiques à deux locus peuvent être alors corrélées.
+
+Rappel 
+la corrélation entre deux variables aléatoires X et Y, est égale à la covariance entre X et Y divisée par le produit des deux écart-types X et Y.
+$$ CorXY = \frac {CovXY} { \sqrt{VarX \: VarY}} $$
+
+Par exemple 
+
+```{r}
+i<-1
+j<-2
+CovXY<-cov(genotype[,i], genotype[,j])
+VarX<-var(genotype[,i])
+VarY<-var(genotype[,j])
+
+CorXY<-CovXY/(VarX * VarY)^0.5
+CorXY
+
+# ou plus rapide
+cor(genotype[,i], genotype[,j])
+
+```
+
+La distribution des corrélations dues à l'échantillonnage peut être facilement obtenues. La fonction cor permet de calculer toutes les corrélations deux à deux sur les variables organisées en colonnes. 
+
+Il suffit d'ôter la diagonale dans laquelle on trouve la corrélation de la variable avec elle-même qui vaut 1.
+
+```{r}
+mat<-cor(genotype)
+diag(mat)<-NA
+hist(mat, main= "Distribution des corrélations entre variables due au hasard des tirages")
+
+```
+
+Mais en espérance la corrélation est bien nulle.
+```{r}
+mean(mat, na.rm=TRUE)
+```
+
+## La valeur environnementale
+
+Les individus dont nous connaissons le génotype et la valeur génétique croissent dans des conditions environnementales légèrement différentes les uns des autres. Il y a alors des micro variations de fertilité, d'ombrage, de tassement de sol, de changement de densité de semis etc.
+Si on estime que ces effets environnementaux sont indépendants entre eux et indépendant des génotypes et de leur répartition, alors il est simple de simuler la variation engendrée, par un effet aléatoire tiré dans une loi normale de moyenne 0 et de variance Ve.
+
+```{r}
+ValeursE<-rnorm(n_ind, mean=0, sd=15)
+hist(ValeursE, main="Distribution des effets environnementaux")
+
+```
+
+Du coup les phénotypes peuvent être modélisés comme la somme des effets génétiques et des effets environnementaux. Comme les effets génétiques n'ont pas été définis par rapport à une valeur de référence, une valeur de base du trait  peut être rajoutée, par exemple base=1000.
+
+```{r}
+base<-1000
+ValeursP<- base + ValeursG + ValeursE
+hist(ValeursP, main="Distribution des valeurs phénotypiques")
+
+```
+
+
+Comme les deux composantes de la variance sont attendues independantes, alors la variance des valeurs phénotypiques doit être égale à la somme des variances 
+génétiques et environnementales.
+
+```{r}
+var(ValeursP) 
+var(ValeursG) + var(ValeursE)
+
+```
+Ces deux valeurs ne sont pas complètement identiques, car les tirages, en nombre fini, aléatoires ont créés quelques covariances entre G et E. 
+
+Ainsi l'héritabilité au sens large, $H^2_{sl}$ peut être définie comme 
+$$  H^2_{sl} = \frac {VG} {VG + VE}$$.
+
+
+```{r} 
+var(ValeursG)/ (var(ValeursG) + var(ValeursE))
+```
+
+Vous pouvez faire varier les valeurs des paramètres, L, n_ind, la variance d'environnement pour vous rendre compte de leur importance relative et de l'importante stochasticité des effets. 
+
+
+## Quels sont les différents sens de l'$H^2_{sl}$ ?
+
+### Définition
+PAr définition, c'est la part de variance génétique dans la variation totale
+```{r}
+hdeux<-var(ValeursG)/ (var(ValeursG) + var(ValeursE))
+hdeux
+```
+
+### Confiance dans la prédiction de la valeur génotypique à travers le phénotype
+
+Mesurer un phénotype sert à estimer une valeur génétique. 
+Cette mesure est elle fiable ?
+
+```{r}
+plot(ValeursP, ValeursG, main ="Fiabilité de la prédiction")
+```
+
+
+Quelle est la pente de cette régression ?
+La pente de la régression $\beta$ d'une variable Y à prédire par une variable X est donnée par $\beta = \frac{CovXY}{VarX}$.
+
+```{r}
+covGP<-cov(ValeursG, ValeursP)
+varP<-var(ValeursP)
+betaGP<-covGP/varP
+```
+
+Pour visualiser la régression on centre toutes les valeurs, la régression passe alors par [0,0].
+
+
+```{r}
+plot(ValeursP-mean(ValeursP), (ValeursG-mean(ValeursG)), main ="Fiabilité de la prédiction")
+abline(a=0, b=betaGP, col="red")
+
+```
+
+Quelle est la corrélation entre la valeur G et P ?
+
+$$ cov\left(G,P\right) = cov\left(G,G+E\right)  = cov\left(G,G\right)  + cov\left(G,E\right)$$ 
+
+En espérance, $cov\left(G,E\right)$ est attendu nul. 
+Donc $cov\left(G,P\right) = cov\left(G,G+E\right)= VarG$.
+
+On peut vérifier sur nos simulations que la situation n'est pas très éloignée du cas idéal.
+
+```{r}
+cov(ValeursG, ValeursP)
+cov(ValeursG, ValeursE)
+var(ValeursG)
+
+```
+
+Donc la pente de la régression est égale l'héritabilité au sens large. 
+$$\beta = \frac{cov\left(G,P\right)}{VarP}=\frac{VarG}{VarP}=H^2_{sl}$$.
+
+
+```{r}
+plot(ValeursP-mean(ValeursP), (ValeursG-mean(ValeursG)), main ="Fiabilité de la prédiction")
+abline(a=0, b=hdeux, col="red")
+
+```
+
+
+La corrélation entre les valeurs phénotypiques et les valeurs génétiques vaut 
+$$corr\left(G,P\right)=\frac{cov\left(G,P\right)}{\sqrt{VarP\:varG}}$$
+
+Or $\frac{cov\left(G,P\right)}{VarP}= H^2_{sl}$ donc $$corr\left(G,P\right)=r_{GP}=\frac{cov\left(G,P\right)}{VarP}\sqrt{varP/VarG} = H^2_{sl}/H_{sl}=H_{sl}$$
+
+
+```{r}
+cor(ValeursG, ValeursP)
+hdeux^0.5
+```
+
+La (petite) différence est due à l'existence de cov(G,E) non complètement nulles.
+
+Ainsi l'héritabilité donne aussi une indication sur la confiance que l'on peut avoir dans la prédiction de la valeur génétique à partir de la valeur phénotypique.
+
+Il est important de se souvenir de cette corrélation entre la valeur génétique et la valeur phénotypique. Cette corrélation ($H_{sl}$ ne doit en théorie pas pouvoir être dépassée notamment lorsqu'on utilisera des marqueurs moléculaires pour prédire la valeur génétique et qu'on comparera les valeurs prédites aux seules valeurs disponibles, les phénotypes.. En d'autres termes, les marqueurs ne peuvent pas prédire les effets environnementaux.
+
+
+### Ressemblance phénotypique entre individus de même génotype.
+
+Imaginons que nous ayons pu répéter les génotypes. Les individus sont différents des premiers et ont poussé dans des conditions globalement identiques mais avec des micro variations indépendantes. 
+
+
+```{r}
+ValeursE_rep2<-rnorm(n_ind, mean=0, sd=15)
+```
+
+
+Les phénotypes de la deuxième répétitions peuvent être modélisés comme précédemment. 
+
+```{r}
+base<-1000
+ValeursP_rep2<- base + ValeursG + ValeursE_rep2
+
+```
+
+Que vaut la ressemblance entre les répétitions ?
+
+La pente de régression 
+$$\beta_{P_1P_2}=\frac{cov\left(P_1,P_2\right)}{VarP_1}$$
+
+$$\beta_{P_1P_2}=\frac{cov\left(G+E_1, G+E_2\right)}{VarP_1}$$
+
+$$=\frac{1}{VarP_1}\left(cov\left(G,G\right)+cov\left(G,E_2\right)+cov\left(E_1, G\right)+cov\left(E_1, E_2\right)\right)$$
+
+En espérance comme précédemment on s'attend à ce que si il n'y a pas de confusion entre les effets environnementaux ni entre eux ni avec les effets génétiques alors
+$$cov\left(G,E_2\right)=cov\left(E_1, G\right)=cov\left(E_1, E_2\right)=0$$
+puisque les variables sont indépendantes.
+
+
+Donc la pente $\beta_{P_1P_2}$ vaut in fine 
+$$\beta_{P_1P_2}  = \frac{cov\left(G,G\right)}{VarP_1}=H^2{sl}$$
+
+
+```{r}
+plot(ValeursP_rep2, ValeursP)
+intercept<-lm(ValeursP_rep2~ ValeursP)$coefficients[1]
+pente<-lm(ValeursP_rep2~ ValeursP)$coefficients[2]
+abline(a=intercept, b=pente, col="blue")
+abline(a=intercept, b=hdeux, col="red")
+```
+
+De même la corrélation entre les deux vaut 
+$$corr\left(P_1,P_2\right)=\frac{cov\left(P_1,P_2\right)}{\sqrt{varP1 \: VarP2}} = H^2_{sl}$$
+
+Donc en espérance $corr\left(P_1,P_2\right)= H^2_{sl}$
+
+
+```{r}
+cor(ValeursP_rep2, ValeursP)
+hdeux
+```
+
+Donc l'héritabilité a plusieurs sens.
+
+
+## Héritabilité individuelle, héritabilité du dispositif
+
+L'héritabilité que nous venons de calculer est l'héritabilité individuelle, cad la confiance fournie par le phénotype pour prédire le génotype à partir d'une seule observation.
+Cette observation peut être de nature différente. Par exemple, vous avez mesuré des plantes de manière individuelle sur des génotypes tous différents, dans une population panmictique par exemple, la notion d'héritabilité individuelle est aisée à comprendre.
+
+Imaginez maintenant que vous ayez mesuré un poids de grain sur des parcelles comparant différentes lignées fixées. Il y a donc de nombreuses plantes du même génotype à l'intérieur de la parcelle. Une variable comme le poids de 1000 grains est estimée à partir du comptage des grains récoltés et pesés. Une seule valeur est disponible par parcelle, c'est la donnée individuelle. Mais en y réfléchissant, l'héritabilité individuelle de la parcelle est en fait l'héritabilité de la moyenne du poids d'un seul grain, mesurée sur un grand nombre de grains différents.
+Intuitivement vous sentez bien que si vous aviez pesé un seul grain par parcelle, votre héritabilité serait moins bonne car la précision serait moins bonne. 
+
+On peut écrire que les grains d'une plante ont le même génotype et qu'ils ont eu un effet environnemental différent. Si Yij est le poids d'un grain j d'une parcelle de la variété i, alors VP = VG + VE correspond à la variance de tous les grains considérés indépendemment, VG la variance due au génotype et VE la variance environnementale qui s'exerce sur chaque grain à l'intérieur 
+
+Maintenant, considérons Pi. comme la moyenne des poids de grains d'une parcelle. C'est bien la variable élémentaire, individuelle dont vous disposez, on peut la noter $$P_{i.}$$.
+
+$$P_{i.} = \frac{1}{n} \sum_{j=1}^n P_{ij} $$
+
+Quelle est la variance de Pi. si il y a k grains pesés ?
+
+$$VP_{i.} = V\left(\frac{1}{k} \sum_{j=1}^k P_{ij} \right) = \frac{1}{k} \left( \sum_{j=1}^k G_{i} + e_{ij}  \right) $$
+
+$$VP_{i.}= V\left( \frac{1}{k} \left( \sum_{j=1}^k G_{i} + e_{ij}  \right)\right)$$
+
+$$VP_{i.} =  V\left( \frac{1}{k} k G_{i} +  \frac{1}{k} \sum_{j=1}^k e_{ij}  \right) $$
+
+$$VP_{i.} =  V\left( \frac{1}{k} k G_{i} \right) +   V\left(\frac{1}{k} \sum_{j=1}^k e_{ij}  \right) $$
+
+$$VP_{i.} =  V\left( \frac{1}{k} k G_{i} \right) +   \frac{1}{k^2}V\left(\sum_{j=1}^k e_{ij}  \right) $$
+
+$$VP_{i.} =  VG +  \frac{1}{k} Ve  $$
+
+Ainsi l'héritabilité de Pi. est $$ H^2_{sl} = \frac {VG}{\left( VG+\frac{1}{k}Ve\right) }$$
+
+Donc quand le nombre de grains mesurés sur une parcelle est grand, l'effet génétique de la variété sur cette parcelle est bien mieux estimé.
+
+De la même manière, si chaque variété a été mesurée sur plusieurs parcelles (répétitions), une héritabilité du dispositif peut être mesurée. Elle correspond à l'héritabilité de la moyenne.
+
+Dans chaque parcelle, l'environnement commun à toutes les plantes a modifié d'un effet $e_p$ environnemental l'ensemble des grains de la parcelle. Ils sont par exemple plus gros que ceux de la même variété dans une autre parcelle $p'$, moins avantagée. Si on ne garde la valeur que d'une seule parcelle, il y a un effet confondu entre l'effet de la parcelle p et le génotype sur cette parcelle qui diminue la précision de la mesure de la valeur du génotype. 
+L'$H^2_{sl}$ au niveau individuel (ici la parcelle) est donc plus ou moins élevée. De la même manière que précédemment, une héritabilité de la moyenne par génotype sur P parcelles peut être calculée pour améliorer la prédiction de la valeur de la lignée.
+
+
+Ainsi l'héritabilité du dispositif est :
+$$ H^2_{sl, dispo} = \frac {VG}{\left( VG+\frac{1}{n}Ve\right) }$$ où n est le nombre de répétitions de chaque lignée.
+
+Application 
+Dans un essai à deux répétitions, vous avez obtenu VG = 0.1 , Ve=0.9.
+Quelle est la valeur de $$ H^2_{sl, indiv} $$?
+Combien vous faut il mesurer de parcelles par génotype pour avoir une $$ H^2_{sl, dispo}$$ de 0.5 ?
+
+
+## Valeurs génétiques 
+### Que se passe t il à un locus ?
+
+```{r}
+A<-genotype
+A[A==2]<-"AA"
+A[A==0]<-"Aa"
+A[A==-2]<-"aa"
+head(A,1)
+
+boxplot(ValeursG ~A[,1])
+
+```
+
+
+Commentez ce que vous voyez...
+
